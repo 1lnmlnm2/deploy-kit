@@ -39,9 +39,14 @@ fi
 
 COUNT="$(release_list | wc -l)"
 if [ "$COUNT" -le "$KEEP" ]; then
-  say OK "releases: ${COUNT} 个（KEEP=${KEEP}）"
+  say OK "releases: 成功 ${COUNT} 个（KEEP=${KEEP}）"
 else
-  say WARN "releases: ${COUNT} 个，超过 KEEP=${KEEP}，仅告警不清理"
+  say WARN "releases: 成功 ${COUNT} 个，超过 KEEP=${KEEP}，仅告警不清理"
+fi
+FAILED="$(release_list_failed)"
+if [ -n "$FAILED" ]; then
+  printf '[WARN] 失败版本 %s 个（保留现场）: %s\n' \
+    "$(printf '%s\n' "$FAILED" | wc -l)" "$(printf '%s\n' "$FAILED" | paste -sd, -)"
 fi
 
 LINES="$(wc -l < "$APP_ROOT/shared/audit.log" 2>/dev/null || echo 0)"

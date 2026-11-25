@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# common.sh —— deploy.sh / rollback.sh / verify.sh 共用：环境、加锁、渲染、切链、预检、回滚。
+# common.sh —— deploy.sh / rollback.sh / verify.sh 共用：环境、加锁、渲染、切链、预检、标记、回滚。
 set -euo pipefail
 KIT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_ROOT="${APP_ROOT:-/opt/deploy-kit/site}"
@@ -48,9 +48,20 @@ switch_current() { # 临时链 + mv -T 原子替换，不裸 ln -sf
 audit() { # $1 动作 $2 版本 $3 结果
   printf '%s %s %s %s\n' "$(date '+%F %T')" "$1" "$2" "$3" >> "$APP_ROOT/shared/audit.log"
 }
-release_list() {
-  find "$APP_ROOT/releases" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V
+mark_deployed() { # $1 版本：成功标记
+  printf '%s\n' "$(date '+%F %T')" > "$APP_ROOT/releases/$1/.deployed"
+  rm -f "$APP_ROOT/releases/$1/.deploy-failed"
 }
+mark_failed() { # $1 版本 $2 一行原因：失败标记
+  printf '%s %s\n' "$(date '+%F %T')" "${2:-deploy failed}" > "$APP_ROOT/releases/$1/.deploy-failed"
+  rm -f "$APP_ROOT/releases/$1/.deployed"
+}
+list_marked() { # $1 标记文件名
+  find "$APP_ROOT/releases" -mindepth 2 -maxdepth 2 -name "$1" -printf '%h\n' \
+    | xargs -r -n1 basename | sort -V
+}
+release_list() { list_marked .deployed; }
+release_list_failed() { list_marked .deploy-failed; }
 precheck_release() { # $1 版本：切链前校验，缺件只拦截，不叫回滚
   local rel="$APP_ROOT/releases/$1" hv
   [ -f "$rel/public/index.html" ] || {
@@ -69,7 +80,8 @@ apply_service() { # 已在跑则 reload，否则首启；失败返回非 0，由
     systemctl enable --now deploy-kit-site >/dev/null
   fi
 }
-rollback_prev() { # $1 上一版（可空） $2 失败版本
+rollback_prev() { # $1 上一版（可空） $2 失败版本 $3 原因
+  mark_failed "$2" "${3:-deploy failed}"
   if [ -n "$1" ]; then
     switch_current "$1"
     apply_service >> "$APP_ROOT/shared/logs/deploy.log" 2>&1 || true
@@ -83,7 +95,7 @@ rollback_prev() { # $1 上一版（可空） $2 失败版本
   fi
   audit deploy "$2" gate-failed
 }
-warn_keep() { # 发布成功后只告警，不删除
+warn_keep() { # 发布成功后只告警，不删除；KEEP 只数成功版本
   local all count excess
   all="$(release_list)"
   count="$(printf '%s\n' "$all" | grep -c . || true)"

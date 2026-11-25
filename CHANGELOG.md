@@ -3,8 +3,21 @@
 格式：Keep a Changelog 精简版；仓库无远端，日期为真实提交日期。
 
 ## [Unreleased]
-### 待完成
-- A7–A9（卸载、KEEP 告警、文档与链接）待 Day3。
+（无）
+
+## [0.3.0] - 2026-11-25
+### Changed
+- tar.gz 包改为先解到 `mktemp -d` 临时目录，只 `cp -a` 其中的 `public/` 进 release；临时目录在 `/tmp` 下由 `mktemp` 产生并清理，禁止直解进 release。
+- 发布结果增加标记：成功写 `releases/<版本>/.deployed`（含时间），失败写 `.deploy-failed`（一行原因）；失败目录保留现场。
+- `release_list` 拆为成功版本与失败版本；`KEEP`、`verify.sh`、`status` 只统计成功版本；失败版本另行列示且不改变 verify 退出码。
+- `KEEP` 超限告警按成功版本计数；失败版本不占保留名额。
+- `uninstall` 保留 unit 文件并保持 `disabled`，不再删除 unit 文件，便于 `systemctl is-enabled` 验证。
+
+### Verified
+- A7 卸载：`rc=0`，`is-active=inactive`、`is-enabled=disabled`、8090 无监听，releases/shared 保留；随即重新部署 20261128，`verify rc=0`。
+- A8：成功版本 20261130 为第 4 个时告警 `20261125`，20261201 为第 5 个时告警 `20261125,20261126`；均未删除，A8 时点成功 5 + 失败 1。
+- 改 C：20261129 目录包缺 `public/health.txt`，输出 `precheck failed`、未切链、`current` 保持 20261128、`rc=2`，留下 `.deploy-failed`。
+- A9：docs 命令实跑并回填；PORT 在 `deploy.env.example`、nginx 模板、验收命令三处一致为 8090；README 14 条相对链接全部命中。
 
 ## [0.2.0] - 2026-11-25
 ### Changed
