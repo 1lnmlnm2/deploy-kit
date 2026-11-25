@@ -53,7 +53,7 @@ if (Test-Tcp $Server $SshPort) {
 if (Test-Tcp $Server $AppPort) {
     Report 'OK' "远端 $AppPort" '可达'
 } else {
-    Report 'WARN' "远端 $AppPort" '不可达（首装前正常）'
+    Report 'WARN' "远端 $AppPort" '不可达（服务未起或安全组未放行 8090）'
 }
 
 $local = Get-NetTCPConnection -LocalPort $AppPort -State Listen -ErrorAction SilentlyContinue

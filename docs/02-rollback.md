@@ -75,7 +75,7 @@ current: 不存在
 releases: 20261125、20261126、20261127、20261128、20261129、20261130、20261201 保留
 shared: audit.log、logs 保留
 ```
-重新安装直接再跑 `deploy.sh deploy <版本>`，会重建 unit 与 `current`。
+卸载＝停用并禁用，unit 文件保留，可重新 `enable`；重新安装直接再跑 `deploy.sh deploy <版本>`，会启动 unit 并重建 `current`。
 
 ## §4 保留策略
 
