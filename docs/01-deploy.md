@@ -25,10 +25,11 @@ repo 放在 `/root/deploy-kit`，执行：
 ```bash
 sudo bash deploy.sh deploy 20261125
 ```
-预期输出（2026-11-25 真机）：
+预期输出（当前版本，首装）：
 ```
 [OK] 已生成环境文件 /opt/deploy-kit/site/deploy.env
 [OK] 已取得部署锁 /opt/deploy-kit/site/.deploy.lock
+[OK] precheck: index.html 与 health.txt(20261125) 齐备，未切链
 Created symlink /etc/systemd/system/multi-user.target.wants/deploy-kit-site.service → /etc/systemd/system/deploy-kit-site.service.
 [OK] 20261125 上线成功，current -> releases/20261125
 ```
@@ -54,21 +55,29 @@ bash checks/verify.sh
 ```bash
 sudo bash deploy.sh deploy 20261126
 ```
-预期：输出 `[OK] 20261126 上线成功`；`current` 指向新版本，`releases/20261125` 保留；
-`curl http://127.0.0.1:8090/health.txt` 返回 `20261126`。
-升级走 `systemctl reload`，不断连接；回滚见 `docs/02-rollback.md`。
+本轮实测输出（2026-11-25）：
+```
+[OK] 已取得部署锁 /opt/deploy-kit/site/.deploy.lock
+[OK] precheck: index.html 与 health.txt(20261126) 齐备，未切链
+[OK] 20261126 上线成功，current -> releases/20261126
+```
+升级走 `systemctl reload`，连接不断；`releases/20261125` 保留，`curl http://127.0.0.1:8090/health.txt` 返回 `20261126`。
+
+连接采样（与升级同一轮）：单进程顺序 `curl --max-time 2 -fsS` 100 次，每次间隔 `0.05s`（约 5 秒），不并发；升级在采样开始 0.5 秒后触发，结果 `100 OK / 0 FAIL`。
+
+真实发布包用 `--pkg <目录|tar.gz>`：包内 `public/` 被复制进新版本；切链前预检 `index.html`、`health.txt` 齐备且 `health.txt` 内容等于版本号，不满足则 `precheck failed`、不切链、`exit 2`。
 
 ## §3 状态查询
 
 ```bash
 bash deploy.sh status
 ```
-预期输出形如：
+本轮实测输出（A5 复测与恢复后）：
 ```
-current: 20261126
-releases: 2 个
+current: 20261128
+releases: 4 个
 unit: active
-health: 20261126
-audit: 3 行
+health: 20261128
+audit: 7 行
 ```
 只读，不触发发布。

@@ -1,5 +1,5 @@
 worker_processes 1;
-pid /run/nginx.pid;
+pid ${APP_ROOT}/shared/nginx.pid;
 error_log ${APP_ROOT}/shared/logs/error.log warn;
 
 events { worker_connections 256; }

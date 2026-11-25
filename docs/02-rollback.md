@@ -10,15 +10,30 @@ sudo bash rollback.sh
 ```bash
 sudo bash rollback.sh --to 20261125
 ```
-预期：`[OK] 已回滚到 20261125，current -> releases/20261125`，退出码 0；
-`curl http://127.0.0.1:8090/health.txt` 返回目标版本号。
-重跑同一目标：输出 `already on version 20261125, nothing changed`，退出码 0。
+本轮实测（2026-11-25）：
+```
+[OK] 已取得部署锁 /opt/deploy-kit/site/.deploy.lock
+[OK] 已回滚到 20261125，current -> releases/20261125
+```
+退出码 0；`curl http://127.0.0.1:8090/health.txt` 返回 `20261125`。
+重跑同一目标实测：
+```
+[OK] 已取得部署锁 /opt/deploy-kit/site/.deploy.lock
+already on version 20261125, nothing changed
+```
+退出码 0。
 
 目标不存在：`[FAIL] 目标版本不存在: ...`，退出码 65。
 
 ## §2 闸门失败处置
 
-`deploy.sh` 在健康闸门连续 3 次失败时会自动切回上一版并 `exit 2`，不会把坏版本留在 `current`。
+切链前先做预检：`public/index.html`、`public/health.txt` 必须存在，且 `health.txt` 内容等于版本号；不满足则打印 `precheck failed`、**不切链**、`exit 2`，这是预检拦截，不是回滚。
+
+切链后三项闸门：① 8090 在监听；② `/health.txt` 返回版本号；③ `GET /` 返回 200 且响应体含版本号。连查 3 次、间隔 2 秒，任一不符即自动切回上一版并 `exit 2`。切链后的 `systemctl reload/start` 失败也进入同一回滚分支，不会因 `set -e` 直接退出。
+`rollback.sh` 切链后的启停失败同样会打印 `[FAIL]`、记审计并 `exit 2`，不会静默退出。
+
+首版闸门失败且没有上一版：`systemctl disable --now deploy-kit-site`、移除 `current` 软链、`exit 2`；`releases/` 与 `shared/` 保留供排查。
+
 排查顺序：
 ```bash
 tail -n 20 /opt/deploy-kit/site/shared/logs/deploy.log

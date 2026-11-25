@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# deploy.sh —— 单机静态站点发布：deploy <版本> / uninstall / status
-# 流程：加锁 → 幂等判断 → 建 release → 渲染 → 原子切 current → systemd 启停 → 健康闸门 → 失败自动回滚。
+# deploy.sh —— deploy <版本> [--pkg <目录|tar.gz>] / status / uninstall
+# 流程：加锁 → 幂等 → 建 release → 包复制或模板渲染 → 预检 → 切链 → 启停 → 三项闸门 → 失败回滚。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,20 +8,27 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
   cat >&2 <<'EOF'
-用法: deploy.sh deploy <版本号(8位日期)> | status | uninstall
-  deploy <版本>   发布或升级到指定版本（幂等）
-  status          查看 current / releases / unit / 健康状态
-  uninstall       停用 unit、删 current 链接，保留 releases 与 shared
+用法: deploy.sh deploy <8位版本> [--pkg <目录|tar.gz>] | status | uninstall
+  --pkg 可选：包内 public/ 复制进新版本；缺省则用模板渲染（演练模式）
 EOF
 }
 
 cmd="${1:-}"
 case "$cmd" in
   deploy)
-    [ $# -eq 2 ] || { usage; exit 64; }
+    [ $# -ge 2 ] || { usage; exit 64; }
+    V="$2"; shift 2
+    PKG=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --pkg)
+          [ $# -ge 2 ] || { usage; exit 64; }
+          PKG="$2"; shift 2 ;;
+        *) echo "[FAIL] 未知参数: $1" >&2; exit 64 ;;
+      esac
+    done
     require_root
     load_env
-    V="$2"
     case "$V" in
       [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
       *) echo "[FAIL] 版本号必须是 8 位数字，收到: $V" >&2; exit 64 ;;
@@ -35,8 +42,22 @@ case "$cmd" in
     REL="$APP_ROOT/releases/$V"
     mkdir -p "$REL/conf" "$REL/public"
     render_file "$KIT_ROOT/conf/nginx.conf.template" "$REL/conf/nginx.conf" "$V"
-    render_file "$KIT_ROOT/conf/index.html.template" "$REL/public/index.html" "$V"
-    printf '%s\n' "$V" > "$REL/public/health.txt"
+    if [ -n "$PKG" ]; then
+      if [ -d "$PKG" ] && [ -d "$PKG/public" ]; then
+        cp -a "$PKG/public/." "$REL/public/"
+      elif [ -f "$PKG" ]; then
+        tar -xzf "$PKG" -C "$REL"
+      else
+        echo "[FAIL] 包不存在或缺 public/: $PKG" >&2
+        exit 2
+      fi
+    else
+      render_file "$KIT_ROOT/conf/index.html.template" "$REL/public/index.html" "$V"
+      printf '%s\n' "$V" > "$REL/public/health.txt"
+    fi
+    if ! precheck_release "$V"; then
+      exit 2
+    fi
     if ! nginx -t -c "$REL/conf/nginx.conf" >/dev/null 2>&1; then
       echo "[FAIL] nginx 配置校验失败: $REL/conf/nginx.conf" >&2
       exit 2
@@ -45,28 +66,22 @@ case "$cmd" in
       /etc/systemd/system/deploy-kit-site.service
     systemctl daemon-reload
     switch_current "$V"
-    if systemctl is-active --quiet deploy-kit-site; then
-      systemctl reload deploy-kit-site
-    else
-      systemctl enable --now deploy-kit-site >/dev/null
+    SVC_RC=0
+    apply_service >> "$APP_ROOT/shared/logs/deploy.log" 2>&1 || SVC_RC=$?
+    if [ "$SVC_RC" -ne 0 ]; then
+      echo "[FAIL] 服务 reload/start 失败（rc=$SVC_RC），进入回滚" >&2
+      rollback_prev "$PREV" "$V"
+      exit 2
     fi
     GATE_RC=0
     bash "$SCRIPT_DIR/scripts/health-gate.sh" "$V" \
       >> "$APP_ROOT/shared/logs/deploy.log" 2>&1 || GATE_RC=$?
     if [ "$GATE_RC" -ne 0 ]; then
-      audit deploy "$V" gate-failed
-      if [ -n "$PREV" ]; then
-        switch_current "$PREV"
-        systemctl reload deploy-kit-site 2>/dev/null || systemctl restart deploy-kit-site
-        bash "$SCRIPT_DIR/scripts/health-gate.sh" "$PREV" \
-          >> "$APP_ROOT/shared/logs/deploy.log" 2>&1 || true
-        echo "[FAIL] 健康闸门失败，已自动回滚到 $PREV（原因见 shared/logs/deploy.log）" >&2
-      else
-        echo "[FAIL] 健康闸门失败，无上一版可回滚（原因见 shared/logs/deploy.log）" >&2
-      fi
+      rollback_prev "$PREV" "$V"
       exit 2
     fi
     audit deploy "$V" success
+    warn_keep
     echo "[OK] $V 上线成功，current -> releases/$V"
     exit 0
     ;;
@@ -84,8 +99,7 @@ case "$cmd" in
     ;;
   status)
     load_env
-    CUR="$(current_version)"
-    echo "current: ${CUR:-<无>}"
+    echo "current: $(current_version)"
     echo "releases: $(release_list | wc -l) 个"
     echo "unit: $(systemctl is-active deploy-kit-site 2>/dev/null || true)"
     BODY="$(curl --max-time 3 -fsS "http://127.0.0.1:${PORT}${HEALTH_PATH}" 2>/dev/null || true)"
