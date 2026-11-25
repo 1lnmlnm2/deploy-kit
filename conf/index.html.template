@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>deploy-kit ${VERSION}</title>
+</head>
+<body>
+  <h1>deploy-kit</h1>
+  <p>version: ${VERSION}</p>
+  <p>build: ${BUILD_TIME}</p>
+</body>
+</html>

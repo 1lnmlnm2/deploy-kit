@@ -1,0 +1,17 @@
+worker_processes 1;
+pid /run/nginx.pid;
+error_log ${APP_ROOT}/shared/logs/error.log warn;
+
+events { worker_connections 256; }
+
+http {
+  default_type text/html;
+  access_log ${APP_ROOT}/shared/logs/access.log;
+  server {
+    listen ${PORT};
+    server_name _;
+    root ${APP_ROOT}/current/public;
+    index index.html;
+    location / { try_files $uri $uri/ =404; }
+  }
+}

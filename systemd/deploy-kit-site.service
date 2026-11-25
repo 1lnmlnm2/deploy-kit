@@ -1,0 +1,14 @@
+[Unit]
+Description=deploy-kit static site (nginx custom config)
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/nginx -t -c /opt/deploy-kit/site/current/conf/nginx.conf
+ExecStart=/usr/sbin/nginx -c /opt/deploy-kit/site/current/conf/nginx.conf -g 'daemon off;'
+ExecReload=/usr/sbin/nginx -s reload
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
